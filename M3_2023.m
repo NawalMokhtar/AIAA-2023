@@ -1,8 +1,16 @@
-function[cap_consumed_M3, lap_times_M3, time_M3_min, T_overall3, V_overall3, v_avrg3, TO_dist_M3, x_overall_M3, y_overall_M3, z_overall_M3] = M3_2023(wing,cl_max,n,M3,~)
-    
+function[E_max_M3, P_max_M3, Battery_results_M3, lap_times_M3, time_M3_min, T_overall3, V_overall3, v_avrg3, TO_dist_M3, x_overall_M3, y_overall_M3, z_overall_M3] = M3_2023(wing,cl_max,n,Cd0_wing,W_S,CL_max,M3,~)
+
+%% Constants
+SG          = 60;
+g           = 9.81;
+rho         = 1.225;
+S_runway    = 152;
+u           = 0.04;
+% Ground-rolling-friction coefficient used during takeoff
+mu = 0.6;
+
 imax = 1000;
 M3_allowed_time = M3.allowed_time;
-M3_bat_cap = M3.bat_cap;
 Ts = M3.Ts_100;
 Ts_any = M3.Ts_any;
 laps_req = M3.laps_req;
@@ -27,6 +35,9 @@ mu = 0.6;
 S_ref = wing.s;
 AR = wing.AR;
 
+e  = @(AR) 1.78*(1-0.045*AR^0.68)-0.64;
+K  = @(AR) 1/pi/e(AR)/AR;
+
 % Runge Katta approach
 h=.1;
 i=1;
@@ -39,17 +50,21 @@ y0(i)=0;
 z0(i)=0;
 
 %Induced-drag coefficient during ground roll and climb
-c2_max = 0.5 *1.225*S_ref*cl_max^2/(pi*0.85*AR); %% How can the 'e' be set as a constant here while it is changing in M2??
+%c2_max = 0.5 *1.225*S_ref*cl_max^2/(pi*0.85*AR); %% How can the 'e' be set as a constant here while it is changing in M2??
+c2_max = 0.5 .*1.225.*S_ref.*cl_max.^2./(pi.*e(AR).*AR); 
 L_takeoff = 0;
 
 %The lift coefficient required at load factor n (during turn)
 CL_turn = 2*n*MTOW*9.81/(1.225*S_ref);
 
 %Induced-drag coefficient during turn
-c2_turn = 0.5*1.225*S_ref*CL_turn^2/(pi*0.85*AR);
+%c2_turn = 0.5*1.225*S_ref*CL_turn^2/(pi*0.85*AR);
+c2_turn = 0.5.*1.225.*S_ref.*CL_turn.^2/(pi.*e(AR).*AR);
 
 %% %%%%%%%%Lap 1%%%%%%%
 v_stall = sqrt((2*MTOW*9.81)/(1.225*S_ref*cl_max));
+CD0     = Cd0_wing;
+CL_to   = CL_max;
 %% takeoff
 while (L_takeoff <= (MTOW*9.81))
     v_dot = @(t,v)((((Ts-c3*v^2-c4*v)*1)-c1*v^2-c2_max*v^2-mu*(0.5*1.225*v^2*S_ref*cl_max-(MTOW*9.81)))/MTOW);
@@ -74,6 +89,14 @@ end
 v_takeoff = v1(i);
 t_takeoff = t1(i);
 TO_dist_M3 = distance(i);
+
+q_TO   = rho/2 * (v_takeoff/sqrt(2))^2;
+CD_TO  = CD0 + K(AR) * CL_to^2;
+TW_TO0  = v_takeoff^2/(2*g*SG) + q_TO*CD_TO/W_S + u*(1 - q_TO*CL_to/W_S);
+Thrust_TO = MTOW*TW_TO0*1.1;
+p_TO = Thrust_TO*v_takeoff/0.43; % 0.4:0.45 >> efficiency propeller at takeoff gudmunsson
+E_TO = t_takeoff*p_TO;
+
 x_new=x0(i);
 y_new=y0(i);
 z_new=z0(i);
@@ -110,6 +133,13 @@ v_climb =v2(i);
 t_climb = t2(i);
 altitude_climb = altitude(i);
 distance_climb = altitude_climb/tand(theta);
+
+q_cl      = rho/2 * v_climb^2;
+TW_ROC    = ROC(i)/v_climb + q_cl/W_S*CD0 + K(AR)/q_cl*W_S;
+Thrust_climb = MTOW*TW_ROC*1.1;
+p_climb = Thrust_climb*v_climb/0.63; % 0.6:0.65 >> efficiency propeller at climb gudmunsson
+E_climb = (t_climb-t_takeoff)*p_climb;
+
 x_new=x1(i);
 y_new=y1(i);
 z_new=z1(i);
@@ -121,7 +151,7 @@ distance_cruise0(i)=0;
 x2(i)=x_new;
 y2(i)=y_new;
 z2(i)=z_new;
-while ( distance_cruise0 <( 150-distance_climb-TO_dist_M3 ))
+while ( distance_cruise0 <( 152.4-distance_climb-TO_dist_M3 ))
     v_dot = @(t,v)((((Ts_any-c3_throttle*v^2-c4_throttle*v)*1)-c1*v^2-c2/v^2)/MTOW);
     k1 = h*v_dot(t0(i),v0(i));
     k2 = h*v_dot(t0(i)+0.5*h,v0(i)+0.5*k1);
@@ -140,6 +170,13 @@ while ( distance_cruise0 <( 150-distance_climb-TO_dist_M3 ))
 end
 v_cruise0=v0(i);
 t_cruise0=t0(i);
+
+q_cruise0   = 0.5*rho*v_cruise0^2;
+TW_cruise0  = q_cruise0*CD0 / W_S + K(AR)/q_cruise0*W_S;
+Thrust_cruise0 = MTOW*TW_cruise0*1.1;
+p_cruise0 = Thrust_cruise0*v_cruise0/0.75; % >> efficiency propeller at cruise gudmunsson
+E_cruise0 = (t_cruise0-t_climb)*p_cruise0;
+
 x_new=x2(i);
 y_new=y2(i);
 z_new=z2(i);
@@ -184,6 +221,15 @@ while Turn_angle < pi
 end
 v_turn = v3(i);
 t_turn = t3(i);
+
+%R_turn1  = v_turn^2 / g / sqrt(n^2-1); % Turn radius 
+phi    = acosd(1 / n);
+q_turn1  = 0.5 * rho * v_turn^2;
+TW_turn1 = q_turn1*(CD0/W_S + K(AR)*(1/q_turn1/cosd(phi))^2*W_S); %% Turn angle is pi?
+Thrust_turn1 = MTOW*TW_turn1*1.1;
+p_turn1 = Thrust_turn1*v_turn/0.75; % >> is the propeller efficiency at turning =cruise?
+E_turn1 = (t_turn-t_cruise0)*p_turn1;
+
 x_new=x3(i);
 y_new=y3(i);
 z_new=z3(i);
@@ -192,7 +238,6 @@ if high_load_factor == 1
 end
 
 %% first cruise
-
 i = 1;
 v4(i) = v_turn;
 t4(i) = t_turn;
@@ -200,7 +245,7 @@ distance_cruise(i) = 0;
 x4(i)=x_new;
 y4(i)=y_new;
 z4(i)=z_new;
-while distance_cruise < 150
+while distance_cruise < 152.4
     v_dot = @(t,v)((((Ts_any-c3_throttle*v^2-c4_throttle*v)*1)-c1*v^2-c2/v^2)/MTOW);
     k1 = h*v_dot(t4(i),v4(i));
     k2 = h*v_dot(t4(i)+0.5*h,v4(i)+0.5*k1);
@@ -220,6 +265,13 @@ while distance_cruise < 150
 end
 v_cruise = v4(i);
 t_cruise = t4(i);
+
+q_cruise1   = 0.5*rho*v_cruise^2;
+TW_cruise1  = q_cruise1*CD0 / W_S + K(AR)/q_cruise1*W_S;
+Thrust_cruise1 = MTOW*TW_cruise1*1.1;
+p_cruise1 = Thrust_cruise1*v_cruise/0.75; % >> efficiency propeller at cruise gudmunsson
+E_cruise1 = (t_cruise-t_turn)*p_cruise1;
+
 x_new=x4(i);
 y_new=y4(i);
 z_new=z4(i);
@@ -267,6 +319,13 @@ end
 v_turn360 =v5(i);
 t_turn360 = t5(i);
 
+phi    = acosd(1 / n);
+q_turn360  = 0.5 * rho * v_turn360^2;
+TW_turn360 = q_turn360*(CD0/W_S + K(AR)*(1/q_turn360/cosd(phi))^2*W_S); %% Turn angle is pi?
+Thrust_turn360 = MTOW*TW_turn360*1.1;
+p_turn360 = Thrust_turn360*v_turn360/0.75; % >> is the propeller efficiency at turning =cruise?
+E_turn360 = (t_turn360-t_cruise)*p_turn360;
+
 if high_load_factor == 1
     error(" Adjust the load factor, the velocity at turn is smaller than stall velocity at turn 360 M3 ")
 end
@@ -281,7 +340,7 @@ distance_cruise2(i)=0;
 x6(i)=x_new;
 y6(i)=y_new;
 z6(i)=z_new;
-while distance_cruise2 <150
+while distance_cruise2 <152.4
     v_dot = @(t,v)((((Ts_any-c3_throttle*v^2-c4_throttle*v)*1)-c1*v^2-c2/v^2)/MTOW);
     k1 = h*v_dot(t6(i),v6(i));
     k2 = h*v_dot(t6(i)+0.5*h,v6(i)+0.5*k1);
@@ -301,6 +360,13 @@ while distance_cruise2 <150
 end
 v_cruise2=v6(i);
 t_cruise2=t6(i);
+
+q_cruise2    = 0.5*rho*v_cruise2^2;
+TW_cruise2  = q_cruise2*CD0 / W_S + K(AR)/q_cruise2*W_S;
+Thrust_cruise2 = MTOW*TW_cruise2*1.1;
+p_cruise2 = Thrust_cruise2*v_cruise2/0.75; % >> efficiency propeller at cruise gudmunsson
+E_cruise2 = (t_cruise2-t_turn360)*p_cruise2;
+
 x_new=x6(i);
 y_new=y6(i);
 z_new=z6(i);
@@ -349,6 +415,14 @@ end
 v_turn2 =v7(i);
 t_turn2 = t7(i);
 
+%R_turn2  = v_turn2^2 / g / sqrt(n^2-1); % Turn radius 
+phi    = acosd(1 / n);
+q_turn2  = 0.5 * rho * v_turn2^2;
+TW_turn2 = q_turn2*(CD0/W_S + K(AR)*(1/q_turn2/cosd(phi))^2*W_S); %% Turn angle is pi?
+Thrust_turn2 = MTOW*TW_turn2*1.1;
+p_turn2 = Thrust_turn2*v_turn2/0.75; % >> is the propeller efficiency at turning =cruise?
+E_turn2 = (t_turn2-t_cruise2)*p_turn2;
+
 x_new=x7(i);
 y_new=y7(i);
 z_new=z7(i);
@@ -365,7 +439,7 @@ distance_cruise3(i)=0;
 x8(i)=x_new;
 y8(i)=y_new;
 z8(i)=z_new;
-while distance_cruise3 <150
+while distance_cruise3 <152.4
     v_dot = @(t,v)((((Ts_any-c3_throttle*v^2-c4_throttle*v)*1)-c1*v^2-c2/v^2)/MTOW);
     k1 = h*v_dot(t8(i),v8(i));
     k2 = h*v_dot(t8(i)+0.5*h,v8(i)+0.5*k1);
@@ -385,6 +459,13 @@ while distance_cruise3 <150
 end
 v_cruise3=v8(i);
 t_cruise3=t8(i);
+
+q_cruise3    = 0.5*rho*v_cruise3^2;
+TW_cruise3  = q_cruise3*CD0 / W_S + K(AR)/q_cruise3*W_S;
+Thrust_cruise3 = MTOW*TW_cruise3*1.1;
+p_cruise3 = Thrust_cruise3*v_cruise3/0.75; % >> efficiency propeller at cruise gudmunsson
+E_cruise3 = (t_cruise2-t_turn360)*p_cruise3;
+
 x_new=x8(i);
 y_new=y8(i);
 z_new=z8(i);
@@ -401,7 +482,7 @@ distanceG_cruise1(i)=0;
 x9(i)=x_new;
 y9(i)=y_new;
 z9(i)=z_new;
-while ( distanceG_cruise1 < 150)
+while ( distanceG_cruise1 < 152.4)
     v_dot = @(t,v)((((Ts_any-c3_throttle*v^2-c4_throttle*v)*1)-c1*v^2-c2/v^2)/MTOW);
     k1 = h*v_dot(tG1(i),vG1(i));
     k2 = h*v_dot(tG1(i)+0.5*h,vG1(i)+0.5*k1);
@@ -421,6 +502,13 @@ while ( distanceG_cruise1 < 150)
 end
 vG_cruise1=vG1(i);
 tG_cruise1=tG1(i);
+
+qG_cruise1    = 0.5*rho*vG_cruise1^2;
+TWG_cruise1  = qG_cruise1*CD0 / W_S + K(AR)/qG_cruise1*W_S;
+ThrustG_cruise1 = MTOW*TWG_cruise1*1.1;
+pG_cruise1 = ThrustG_cruise1*vG_cruise1/0.75; % >> efficiency propeller at cruise gudmunsson
+EG_cruise1 = (tG_cruise1-t_cruise3)*pG_cruise1;
+
 x_new=x9(i);
 y_new=y9(i);
 z_new=z9(i);
@@ -465,6 +553,14 @@ end
 vG_turn1 =vG2(i);
 tG_turn1 = tG2(i);
 
+%RG_turn1  = v_turn^2 / g / sqrt(n^2-1); % Turn radius 
+phi    = acosd(1 / n);
+qG_turn1  = 0.5 * rho * vG_turn1^2;
+TWG_turn1 = qG_turn1*(CD0/W_S + K(AR)*(1/qG_turn1/cosd(phi))^2*W_S); %% Turn angle is pi?
+ThrustG_turn1 = MTOW*TWG_turn1*1.1;
+pG_turn1 = ThrustG_turn1*vG_turn1/0.75; % >> is the propeller efficiency at turning =cruise?
+EG_turn1 = (tG_turn1-tG_cruise1)*pG_turn1;
+
 x_new=x10(i);
 y_new=y10(i);
 z_new=z10(i);
@@ -480,7 +576,7 @@ distanceG_cruise2(i)=0;
 x11(i)=x_new;
 y11(i)=y_new;
 z11(i)=z_new;
-while distanceG_cruise2 <150
+while distanceG_cruise2 <152.4
     v_dot = @(t,v)((((Ts_any-c3_throttle*v^2-c4_throttle*v)*1)-c1*v^2-c2/v^2)/MTOW);
     k1 = h*v_dot(tG3(i),vG3(i));
     k2 = h*v_dot(tG3(i)+0.5*h,vG3(i)+0.5*k1);
@@ -500,6 +596,13 @@ while distanceG_cruise2 <150
 end
 vG_cruise2=vG3(i);
 tG_cruise2=tG3(i);
+
+qG_cruise2    = 0.5*rho*vG_cruise2^2;
+TWG_cruise2  = qG_cruise2*CD0 / W_S + K(AR)/qG_cruise2*W_S;
+ThrustG_cruise2 = MTOW*TWG_cruise2*1.1;
+pG_cruise2 = ThrustG_cruise2*vG_cruise2/0.75; % >> efficiency propeller at cruise gudmunsson
+EG_cruise2 = (tG_cruise2-tG_turn1)*pG_cruise2;
+
 x_new=x11(i);
 y_new=y11(i);
 z_new=z11(i);
@@ -546,6 +649,13 @@ end
 vG_turn2 =vG4(i);
 tG_turn2 = tG4(i);
 
+phi    = acosd(1 / n);
+qG_turn360  = 0.5 * rho * vG_turn2^2;
+TWG_turn360 = qG_turn360*(CD0/W_S + K(AR)*(1/qG_turn360/cosd(phi))^2*W_S); %% Turn angle is 2 pi?
+ThrustG_turn360 = MTOW*TWG_turn360*1.1;
+pG_turn360 = ThrustG_turn360*vG_turn2/0.75; % >> is the propeller efficiency at turning =cruise?
+EG_turn360 = (tG_turn2-tG_cruise2)*pG_turn360;
+
 x_new=x12(i);
 y_new=y12(i);
 z_new=z12(i);
@@ -562,7 +672,7 @@ distanceG_cruise3(i)=0;
 x13(i)=x_new;
 y13(i)=y_new;
 z13(i)=z_new;
-while distanceG_cruise3 <150
+while distanceG_cruise3 <152.4
     v_dot = @(t,v)((((Ts_any-c3_throttle*v^2-c4_throttle*v)*1)-c1*v^2-c2/v^2)/MTOW);
     k1 = h*v_dot(tG5(i),vG5(i));
     k2 = h*v_dot(tG5(i)+0.5*h,vG5(i)+0.5*k1);
@@ -582,6 +692,13 @@ while distanceG_cruise3 <150
 end
 vG_cruise3=vG5(i);
 tG_cruise3=tG5(i);
+
+qG_cruise3    = 0.5*rho*vG_cruise3^2;
+TWG_cruise3  = qG_cruise3*CD0 / W_S + K(AR)/qG_cruise3*W_S;
+ThrustG_cruise3 = MTOW*TWG_cruise3*1.1;
+pG_cruise3 = ThrustG_cruise3*vG_cruise3/0.75; % >> efficiency propeller at cruise gudmunsson
+EG_cruise3 = (tG_cruise3-tG_turn2)*pG_cruise3;
+
 x_new=x13(i);
 y_new=y13(i);
 z_new=z13(i);
@@ -629,6 +746,14 @@ end
 vG_turn3 =vG6(i);
 tG_turn3 = tG6(i);
 
+%RG_turn3  = v_turn^2 / g / sqrt(n^2-1); % Turn radius 
+phi    = acosd(1 / n);
+qG_turn3  = 0.5 * rho * vG_turn3^2;
+TWG_turn3 = qG_turn3*(CD0/W_S + K(AR)*(1/qG_turn3/cosd(phi))^2*W_S); %% Turn angle is pi?
+ThrustG_turn3 = MTOW*TWG_turn3*1.1;
+pG_turn3 = ThrustG_turn3*vG_turn3/0.75; % >> is the propeller efficiency at turning =cruise?
+EG_turn3 = (tG_turn3-tG_cruise3)*pG_turn3;
+
 x_new=x14(i);
 y_new=y14(i);
 z_new=z14(i);
@@ -644,7 +769,7 @@ distanceG_cruise4(i)=0;
 x15(i)=x_new;
 y15(i)=y_new;
 z15(i)=z_new;
-while distanceG_cruise4 <150
+while distanceG_cruise4 <152.4
     v_dot = @(t,v)((((Ts_any-c3_throttle*v^2-c4_throttle*v)*1)-c1*v^2-c2/v^2)/MTOW);
     k1 = h*v_dot(tG7(i),vG7(i));
     k2 = h*v_dot(tG7(i)+0.5*h,vG7(i)+0.5*k1);
@@ -664,6 +789,13 @@ while distanceG_cruise4 <150
 end
 vG_cruise4=vG7(i);
 tG_cruise4=tG7(i);
+
+qG_cruise4    = 0.5*rho*vG_cruise4^2;
+TWG_cruise4  = qG_cruise4*CD0 / W_S + K(AR)/qG_cruise4*W_S;
+ThrustG_cruise4 = MTOW*TWG_cruise4*1.1;
+pG_cruise4 = ThrustG_cruise4*vG_cruise4/0.75; % >> efficiency propeller at cruise gudmunsson
+EG_cruise4 = (tG_cruise4-tG_turn3)*pG_cruise4;
+
 time_lap_2=tG_cruise4 - t_cruise3;
 gen_lap = laps_req -1;
 lap_times_M3 = [time_lap_1, repmat(time_lap_2, 1, gen_lap)];
@@ -672,9 +804,55 @@ lap_times_M3 = [time_lap_1, repmat(time_lap_2, 1, gen_lap)];
 if (time_lap_1 + (laps_req-1)*time_lap_2) > M3_allowed_time
     error('Design cannot complete the required 3 laps within the Mission 3 time window');
 end
-time_M3_min =(time_lap_1+(2*(time_lap_2)))/60; % in minutes
-time_M3_hour = time_M3 / 60;
-cap_consumed_M3= (I_max_100_M2 * 1000 * time_M3_hour)/0.85; %% Imax should be only for climb and takeoff 
+time_M3_min =(time_lap_1+((laps_req-1)*(time_lap_2)))/60; % in minutes
+time_M3_hour = time_M3_min / 60;
+%% Battery
+pG = [pG_cruise1, pG_turn1, pG_cruise2, pG_turn360, pG_cruise3, pG_turn3, pG_cruise4];
+EG = [EG_cruise1, EG_turn1, EG_cruise2, EG_turn360, EG_cruise3, EG_turn3, EG_cruise4];
+Power = [p_TO, p_climb, p_cruise0, p_turn1, p_cruise1, p_turn360, p_cruise2, p_turn2, p_cruise3,repmat(pG, 1, gen_lap)];
+Energy = [E_TO, E_climb, E_cruise0, E_turn1, E_cruise1, E_turn360, E_cruise2, E_turn2, E_cruise3,repmat(EG, 1, gen_lap)];
+
+E_total = sum(Energy);
+P_total = sum(Power);
+
+
+E_total_Wh = E_total / 3600;
+if E_total_Wh >= 100
+    error('Total M3 energy (%.2f Wh) meets or exceeds the 100 Wh competition limit.', E_total_Wh);
+end
+
+E_max_M3 = max(Energy);
+E_cruise_average = mean([E_cruise0, E_cruise1, E_cruise2, E_cruise3]);
+
+P_max_M3 = max(Power);
+P_cruise_average = mean([p_cruise0, p_cruise1, p_cruise2, p_cruise3]);
+
+Battery = [3 9 6]*3.7;
+
+n_batt         = length(Battery);
+Capacity_Ah    = zeros(1,n_batt);
+C_rate         = zeros(1,n_batt);
+I_max     = zeros(1,n_batt);
+I_throttle = zeros(1,n_batt);
+
+% time_dicharge = time_M2_h
+for k = 1:n_batt
+    V = Battery(k);
+
+    I_max(k) = P_max_M3 / V;
+    I_throttle(k) = P_cruise_average / V;
+
+    Capacity_Ah(k) = E_total_Wh / (V * 0.85);
+    C_rate(k)  = I_max(k) / Capacity_Ah(k);
+    %%% Peukert’s Law
+    % Capacicity_req(k) = time_dicharge.*I_max(k)^1.28 >> this should be
+    % done at each phase due to current change.
+end
+
+Battery_results_M3 = table(Battery', (Capacity_Ah*1000)', C_rate', I_max', I_throttle', ...
+    'VariableNames', {'Voltage_V','Capacity_mAh','C_rate','I_max_A','I_throttle_A'});
+
+%cap_consumed_M3= (I_max_100_M2 * 1000 * time_M3_hour)/0.85; %% Imax should be only for climb and takeoff 
 
 %% overall Parameters 
 
