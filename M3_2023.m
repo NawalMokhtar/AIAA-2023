@@ -1,4 +1,4 @@
-function[E_max_M3, P_max_M3, Battery_results_M3, lap_times_M3, time_M3_min, T_overall3, V_overall3, v_avrg3, TO_dist_M3, x_overall_M3, y_overall_M3, z_overall_M3] = M3_2023(wing,cl_max,n,Cd0_wing,W_S,CL_max,M3,~)
+function[E_max_M3, P_max_M3, Battery_results_M3, lap_times_M3, time_M3_min, T_overall3, V_overall3, v_avrg3, TO_dist_M3, x_overall_M3, y_overall_M3, z_overall_M3] = M3_2023(wing,cl_max,n,Cd0_wing,CL_max,M3,~)
 
 %% Constants
 SG          = 60;
@@ -28,12 +28,10 @@ c4 = M3.P2;
 c3_throttle = M3.P1_throttle;
 c4_throttle = M3.P2_throttle;
 
-% Ground-rolling-friction coefficient used during takeoff
-mu = 0.6;
-
 
 S_ref = wing.s;
 AR = wing.AR;
+W_S = MTOW./S_ref;
 
 e  = @(AR) 1.78*(1-0.045*AR^0.68)-0.64;
 K  = @(AR) 1/pi/e(AR)/AR;
