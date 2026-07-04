@@ -1,5 +1,5 @@
-function [time_M2_min,TO_dist_M2,time_M3_min,TO_dist_M3,n_laps_M2,Score_M2,...
-     Score_M3,Overall_score,cap,Payload_weight_M2,v_avrg2,v_avrg3] = Mission_model_function(wing,cl_max,n,M2,M3,pd,L_antenna) % bonus?
+function [E_max_M2, P_max_M2, Battery_results_M2, time_M2_min,TO_dist_M2,n_laps_M2,E_max_M3, P_max_M3, Battery_results_M3,time_M3_min,TO_dist_M3,Score_M2,...
+     Score_M3,Overall_score,cap,Payload_weight_M2,v_avrg2,v_avrg3] = Mission_model_function(wing,cl_max,n,Cd0_wing,W_S,CL_max, M2,M3,pd,L_antenna) % bonus?
 
 Payload_weight_M2 = pd;           
 M2.P1 = -1 * M2.C1_M2;                        
@@ -18,9 +18,9 @@ M3.P2_throttle = -1 * M3.C2_M3_Th;
 
 %% functions for missions :
 
-[cap_consumed_M3, lap_times_M3, time_M3_min, T_overall3, V_overall3, v_avrg3, TO_dist_M3, x_overall_M3, y_overall_M3, z_overall_M3] = M3_2023(wing,cl_max,n,M3,M2);
+[E_max_M3, P_max_M3, Battery_results_M3, lap_times_M3, time_M3_min, T_overall3, V_overall3, v_avrg3, TO_dist_M3, x_overall_M3, y_overall_M3, z_overall_M3] = M3_2023(wing,cl_max,n,Cd0_wing,W_S,CL_max,M3,M2);
 
-[cap_consumed_M2,n_laps_M2,lap_times_M2,time_M2_min,T_overall2,V_overall2,v_avrg2,TO_dist_M2,x_overall_M2,y_overall_M2,z_overall_M2] = M2_2023(wing,cl_max,n,M2,M3);
+[E_max_M2, P_max_M2, Battery_results_M2,n_laps_M2,lap_times_M2,time_M2_min,T_overall2,V_overall2,v_avrg2,TO_dist_M2,x_overall_M2,y_overall_M2,z_overall_M2] = M2_2023(wing,cl_max,n,Cd0_wing,W_S,CL_max,M2,M3);
 
 %% SCORE
 % max_M2 = score.max_score_M2 ;
@@ -30,7 +30,7 @@ M3.P2_throttle = -1 * M3.C2_M3_Th;
 %Score_M2 = 1 + payload_M2*N_laps./max_M2
 %Score_M3 = 2 + (L_antenna/time_M3)./max_M3
 Overall_score = 1;
-cap = 67;
+cap = 67; %% To be changed
 %% Remaining capacity
 
 % remaining_cap_M2_mAh = M2.bat_cap-cap_consumed_M2;
