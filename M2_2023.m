@@ -1,4 +1,4 @@
-function [E_max_M2, P_max_M2, Battery_results_M2,n_laps_M2,lap_times_M2,time_M2_min,T_overall2,V_overall2,v_avrg2,TO_dist_M2,x_overall_M2,y_overall_M2,z_overall_M2] = M2_2023(wing,cl_max,n,Cd0_wing,W_S,CL_max,M2,~)
+function [E_max_M2, P_max_M2, Battery_results_M2,n_laps_M2,lap_times_M2,time_M2_min,T_overall2,V_overall2,v_avrg2,TO_dist_M2,x_overall_M2,y_overall_M2,z_overall_M2] = M2_2023(wing,cl_max,n,Cd0_wing,CL_max,M2,~)
 
 %% Constants
 SG          = 60;
@@ -27,8 +27,9 @@ c4 = M2.P2_max;
 c3_throttle = M2.P1_throttle;
 c4_throttle = M2.P2_throttle;
 
-S_ref = wing.s; % Span
+S_ref = wing.s;
 AR = wing.AR;
+W_S = M2_MTOW./S_ref;
 
 % Oswald Efficiency
 e  = @(AR) 1.78*(1-0.045*AR^0.68)-0.64;
