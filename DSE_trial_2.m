@@ -34,7 +34,7 @@ cls = [0.808,0.0,0.465;
 clms = cls(:,1)';
 
 %% Payload weight correlation
-payload = @(x) 0.7735 * x + -5.7021;
+payload = @(x) 0.7735 * x + -2.5864;
 
 %% Constants
 SG       = 60;
@@ -43,7 +43,11 @@ u        = 0.04;
 n        = 3; % load factor
 rho      = 1.225;
 S_runway = 152;
-CD0_antenna = 1.0767; 
+CD_antenna = 1.0767; 
+rho_PVC  = 1450;
+area_pipe = (0.02134^2 - 0.01580^2) * pi;
+
+
 
 %% Important equations
 e  = @(AR) 1.78*(1-0.045*AR^0.68)-0.64;
@@ -54,8 +58,8 @@ SB_dimensions_sum = 1.5748;
 SB_length_array   = linspace(0.5, 1.2, 60);
 
 %% Design parameters' arrays
-Gross_Weight  = linspace(5,25,50)*g;
-Vcruise_array = linspace(10,45,70);
+Gross_Weight  = linspace(5,25,35)*g;
+Vcruise_array = linspace(10,45,25);
 Vstall_array  = linspace(6,17,11);
 % CD0_array     = linspace(0.03,0.07,20); %check 
 CL_max_array  = linspace(1.1,2,7);
@@ -64,10 +68,11 @@ AR_array      = linspace(3,8,8); %check
 totalIterations = numel(Gross_Weight)*numel(CL_max_array)* ...
                   numel(Vstall_array)*numel(Vcruise_array)* ...
                   numel(AR_array)*numel(SB_length_array);
-% h = waitbar(0,'Running...');
+ h = waitbar(0,'Running...');
 %% iterations
-mat = zeros(10000000, 14);
+mat = zeros(10000000, 15);
 i   = 1;
+iter = 0;        % ← add this
 
 for w = Gross_Weight
   w_kg = w / g;                         
@@ -96,40 +101,75 @@ for w = Gross_Weight
           for AR = AR_array
             b = sqrt(AR * S);
 
-            for L_antenna = SB_length_array % check if it's better if it is put diagonally 
+            for L_antenna = SB_length_array % check if it's better if it is put diagonally
+                 iter = iter + 1;        % ← always increment
+              if mod(iter, 50000) == 0  % ← update every 50k iterations
+                waitbar(iter/totalIterations, h, ...
+                  sprintf('%.1f%%  |  Valid: %d', ...
+                          100*iter/totalIterations, i-1));
+              end
               bmax = L_antenna * 2;
               if (b < bmax) && (pd > 0.3 * w_kg)
-                [wingDrag, Cd0_wing] = WingDrag(CL_cr, Vcruise, S, AR);
-                CD0 = Cd0_wing + CD0_antenna;
+                M_antenna = L_antenna * area_pipe * rho_PVC; 
+                drag = Parasite_Drag(S, Vcruise,'T'); % should it be L or T
+                TC_wing = 0.12;
+                MAC_wing = b/AR; % Taper ratio = 1
+                XC_wing = 0.3;
+                CD0_wing = drag.Wing(TC_wing, MAC_wing, XC_wing);
+
+                Fuselage_length = L_antenna; % supposing the only constraint or that pur design is based on making the fuselage length only costrained by the shipping box size
+                Fuselage_d = 0.12; % in m, it is based on the minimum electronic package dimensions to take advantage of the smaller fuselage size -> less drag , less empty weigth, can fit more in the shipping box
+                CD0_fuselage = drag.Fuselage(Fuselage_length, Fuselage_d);
+
+                TC_h = 0.12;
+                XC_h = 0.3;
+                SH_tail = 0.1322;
+                AR_h = 2.69;
+                b_h = sqrt(AR_h*SH_tail);
+                MAC_h = b_h/AR_h;
+                CD0_Htail = drag.Htail(TC_h, SH_tail, MAC_h, XC_h);
+
+                TC_v = 0.12; %assuming NACA0012
+                XC_v = 0.3;
+                Sv_tail = 0.06991; % avg. from historical data 
+                AR_v = 1.37167;
+                b_v = sqrt(AR_v*Sv_tail);
+                MAC_v = b_v/AR_v;
+                CD0_Vtail = drag.Vtail(TC_v, Sv_tail, MAC_v, XC_v);
+
+                A_proj_antenna = 0.02134 * L_antenna; % check 
+                CD0_antenna = CD_antenna * A_proj_antenna/S;
+
+                CD0_M2 = CD0_wing + CD0_Vtail +CD0_Htail +CD0_fuselage;
+                CD0_M3 = CD0_wing + CD0_Vtail +CD0_Htail +CD0_fuselage+ CD0_antenna;
+
+                % Mission 2 matching plot
                 q      = 0.5 * rho * (Vcruise * 1.2)^2;
-                TW_ms  = q * CD0 / W_S + K(AR) / q * W_S;
+                TW_ms  = q * CD0_M2 / W_S + K(AR) / q * W_S;
 
                 Vto    = Vstall * 1.1;
                 q_to   = rho/2 * (Vto/sqrt(2))^2;
-                CD_to  = CD0 + K(AR) * CL_to^2;
+                CD_to  = CD0_M2 + K(AR) * CL_to^2;
                 TW_to  = Vto^2/(2*g*SG) + q_to*CD_to/W_S + u*(1 - q_to*CL_to/W_S);
 
                 V_climb    = (Vstall + Vcruise) / 2;
                 climb_dist = S_runway - SG;
                 t_climb    = climb_dist / V_climb;
-                ROC        = sqrt(2/rho * W_S * sqrt(K(AR)/3/CD0)); % Vertical distance is not constrained in our mission so check 
+                ROC        = sqrt(2/rho * W_S * sqrt(K(AR)/3/CD0_M2)); % Vertical distance is not constrained in our mission so check 
                 q_cl       = rho/2 * V_climb^2;
-                TW_ROC     = ROC/V_climb + q_cl/W_S*CD0 + K(AR)/q_cl*W_S;
+                TW_ROC     = ROC/V_climb + q_cl/W_S*CD0_M2 + K(AR)/q_cl*W_S;
 
                
                 Vtrn   = 0.8 * Vcruise;
-                R      = Vtrn^2 / g / sqrt(n^2-1); % Turn radius 
+                R      = Vtrn^2 / g / sqrt(n^2-1); % Turn radius check that it is not used 
                 phi    = acosd(1 / n);
                 q_trn  = 0.5 * rho * Vtrn^2;
-                TW_trn = q_trn*(CD0/W_S + K(AR)*(1/q_trn/cosd(phi))^2*W_S);
+                TW_trn = q_trn*(CD0_M2/W_S + K(AR)*(1/q_trn/cosd(phi))^2*W_S);
 
                 TW       = max([TW_ms TW_to TW_ROC TW_trn]);
                 Thrust_M2 = w * 1.1 * TW;
 
                 %% Mission 3
-                rho_PVC  = 1450;
-                area_pipe = (0.0889^2 - 0.0779272^2) * pi;
-                M_antenna = L_antenna * area_pipe * rho_PVC; % FIX: multiply by rho_PVC!
                 w_M3      = w - g*pd + M_antenna*g;
                 W_S_M3    = w_M3 / S;
 
@@ -137,33 +177,33 @@ for w = Gross_Weight
                 Vstall_M3  = 0.6 * Vcruise_M3;
                 Vclimb_M3  = (Vstall_M3 + Vcruise_M3) / 2;
                 t_climb_M3 = climb_dist / Vclimb_M3;
-                ROC_M3     = sqrt(2/rho * W_S_M3 * sqrt(K(AR)/3/CD0));
+                ROC_M3     = sqrt(2/rho * W_S_M3 * sqrt(K(AR)/3/CD0_M3));
                 q_cl3      = rho/2 * Vclimb_M3^2;
 
                 Vto3   = Vstall_M3 * 1.1;
                 q_to3  = rho/2 * (Vto3/sqrt(2))^2;
-                TW_to3 = Vto3^2/(2*g*SG) + q_to3*CD_to/W_S_M3 + u*(1 - q_to3*CL_to/W_S_M3);
+                CD_to3  = CD0_M3 + K(AR) * CL_to^2;
+                TW_to3 = Vto3^2/(2*g*SG) + q_to3*CD_to3/W_S_M3 + u*(1 - q_to3*CL_to/W_S_M3);
 
-                TW_ROC3 = ROC_M3/Vclimb_M3 + q_cl3/W_S_M3*CD0 + K(AR)/q_cl3*W_S_M3;
+                TW_ROC3 = ROC_M3/Vclimb_M3 + q_cl3/W_S_M3*CD0_M3 + K(AR)/q_cl3*W_S_M3;
 
                 Vtrn3   = 0.8 * Vcruise_M3;
                 R       = Vtrn^2 / g / sqrt(n^2-1); % Turn radius 
                 phi3    = acosd(1 / n);
                 q_trn3  = 0.5 * rho * Vtrn3^2;
-                TW_trn3 = q_trn3*(CD0/W_S_M3 + K(AR)*(1/q_trn3/cosd(phi3))^2*W_S_M3);
+                TW_trn3 = q_trn3*(CD0_M3/W_S_M3 + K(AR)*(1/q_trn3/cosd(phi3))^2*W_S_M3);
 
                 q_ms3  = 0.5 * rho * (Vcruise_M3*1.2)^2;
-                TW_ms3 = q_ms3*CD0/W_S_M3 + K(AR)/q_ms3*W_S_M3;
+                TW_ms3 = q_ms3*CD0_M3/W_S_M3 + K(AR)/q_ms3*W_S_M3;
 
                 TW3       = max([TW_ms3 TW_to3 TW_ROC3 TW_trn3]);
                 Thrust_M3 = w_M3 * 1.1 * TW3;
 
-                mat(i,1:14) = [w_kg Vcruise Vcruise_M3 Vstall Vstall_M3 ...
-                                S AR b CL_max CD0 Thrust_M2 Thrust_M3 pd L_antenna];
-
-                % if mod(i,1000)==0
-                %   waitbar(i/totalIterations,h);
-                % end
+                mat(i,1:15) = [w_kg Vcruise Vcruise_M3 Vstall Vstall_M3 ...
+                                S AR b CL_max CD0_M3 Thrust_M2 Thrust_M3 pd L_antenna CD0_M2];
+             
+            
+               
                 i = i + 1;
 
               end 
@@ -175,47 +215,8 @@ for w = Gross_Weight
   end 
 
 
-% close(h)
+ close(h)
 mat = mat(1:i-1, :);
 fprintf('Total valid designs found: %d\n', i-1);
 
-
-%% Drage coefficient calculation 
-function [wingDrag, Cd0_wing] = WingDrag(CL, Vcr, Sref, AR)
-%% constants definition and variable initializing
-flow = 'T';
-TC_wing = 0.12;
-XC_wing = 0.3; % How is the wing location known?
-h=0;
-dF = 0.12;
-rho = 1.225;
-viscosity = 1.789e-5;
-TR = 1;
-sweep = 0;
-dTR = -0.375 + 0.45*exp(-0.0375*sweep);
-b = sqrt(Sref*AR); % What is Sref?
-MAC_wing = b/AR;
-%% Induced Drag
-%%%%%%% Corrective Factors
-kFuselage = 1 - 2*(dF/b)^2;
-kDrag0 = 0.8;
-kWinglets = (1+2*h/b)^2;
-cfactors = kFuselage*kDrag0*kWinglets;
-%%%%%%% Induced Drag Calculations
-f_shift = 0.0524.*(TR-dTR).^4 - 0.15.*(TR-dTR).^3 + 0.1659.*(TR-dTR).^2 - 0.0706.*(TR-dTR) + 0.0119;
-e_shift = 1./(1+f_shift.*AR);
-Cdi = CL^2/(pi*AR*e_shift*cfactors);
-
-%% Wing Parasite Drag
-Re = Vcr*MAC_wing*rho/viscosity;
-if flow == 'T'
-    Cf_wing = 0.074/(Re)^0.2;
-else
-    Cf_wing = 1.328/sqrt(Re);
-end
-FF = (1+0.6*TC_wing/XC_wing+100*TC_wing^4);
-Swet = 2*(1+0.2*TC_wing)*Sref;
-Cd0_wing = Cf_wing*FF*(Swet/Sref);
-
-wingDrag = (Cdi+Cd0_wing)*0.5*rho*Vcr^2*Sref;
-end
+writematrix(mat,'DSE_finalResults.CSV')
